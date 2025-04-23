@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
-from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from app.database import Database
 import os
 import datetime
 import random
@@ -11,13 +11,14 @@ import string
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client["ems"]
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+db = Database.get_db()
 users_collection = db["users"]
 otp_collection = db["otp"]
 
@@ -136,3 +137,12 @@ async def reset_password_confirm(data: ResetPasswordConfirm):
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: dict = Depends(get_current_user)):
     return {"id": str(current_user["_id"]), "username": current_user["username"], "email": current_user["email"]}
+
+@router.get("/health", tags=["Health"])
+async def health_check():
+    try:
+        # The ping command is cheap and does not require auth.
+        await db.command("ping")
+        return {"status": "ok", "message": "MongoDB connection successful"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"MongoDB connection failed: {str(e)}")
